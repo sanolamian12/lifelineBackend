@@ -1,0 +1,86 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// 1-1. Auth Table
+model Auth {
+  id          String    @id @default(uuid())
+  account_id  String    @unique
+  account_pw  String
+  last_login  DateTime?
+  account     Account?
+}
+
+// 1-2. Account Table
+model Account {
+  id            String    @id @default(uuid())
+  account_id    String    @unique
+  auth          Auth      @relation(fields: [account_id], references: [account_id])
+
+  account_name  String    @unique
+  account_phone String
+  registeredAt  DateTime  @default(now())
+
+  // [수정] 운영자 여부 필드 추가
+  isChief       Boolean   @default(false)
+
+  total_hours   Float     @default(0.0)
+  activities    Activity[]
+  
+  orders Order[]  
+}
+
+// 2. Activity Table (기존과 동일)
+model Activity {
+  id          String    @id @default(uuid())
+  account_id  String
+  account     Account   @relation(fields: [account_id], references: [account_id])
+  start_time  DateTime  @default(now())
+  end_time    DateTime?
+  hours       Float?
+}
+
+// 3. Current (Singleton)
+model Current {
+  id                String  @id @default("singleton")
+  cur_account       String
+  next_account      String
+  selected_account  String
+  
+  // [추가] 운영자 모드 활성화 여부
+  isAdminMode       Boolean @default(false)
+  lastUpdated       DateTime @default(now())
+}
+
+// 4. Order (Timetable - 기존과 동일)
+model Order {
+  id          String   @id @default(uuid())
+  account_id  String
+  account     Account  @relation(fields: [account_id], references: [account_id])
+
+  day         String
+  time        String
+  next_id     String
+  order       Int
+  start_time  DateTime
+  end_time    DateTime
+
+  @@unique([day, time])
+}
+
+// [추가] 5. OrderBackup (백업용 스냅샷)
+model OrderBackup {
+  id          String   @id @default(uuid())
+  account_id  String
+  day         String
+  time        String
+  next_id     String
+  order       Int
+  start_time  DateTime
+  end_time    DateTime
+}

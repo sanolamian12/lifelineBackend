@@ -1,0 +1,141 @@
+import { 
+  Injectable, 
+  UnauthorizedException, 
+  NotFoundException, 
+  ConflictException 
+} from '@nestjs/common';
+import { PrismaService } from '../prisma/prisma.service';
+import { JwtService } from '@nestjs/jwt';
+import * as bcrypt from 'bcrypt';
+
+@Injectable()
+export class AuthService {
+  constructor(
+    private prisma: PrismaService,
+    private jwtService: JwtService,
+  ) {}
+
+  /**
+   * [1.1] 로그인 (App/Web 공통)
+   */
+  async login(accountId: string, password: string) {
+    // 1. 유저 찾기 (Auth 테이블 조회)
+    const auth = await this.prisma.auth.findUnique({
+      where: { account_id: accountId },
+      include: { account: true },
+    });
+
+    if (!auth) {
+      throw new UnauthorizedException('존재하지 않는 계정입니다.');
+    }
+
+    // 2. 비밀번호 비교
+    const isPasswordMatching = await bcrypt.compare(password, auth.account_pw);
+
+    if (!isPasswordMatching) {
+      throw new UnauthorizedException('비밀번호가 일치하지 않습니다.');
+    }
+
+    // 3. 연결된 계정 정보 확인 (안전장치)
+    if (!auth.account) {
+      throw new NotFoundException('계정 상세 정보가 존재하지 않습니다. 관리자에게 문의하세요.');
+    }
+
+    // 4. 로그인 성공 시 JWT 토큰 생성 및 유저 정보 반환
+    const payload = {
+      sub: auth.account_id,
+      username: auth.account.account_name
+    };
+
+    return {
+      message: '로그인 성공!',
+      access_token: this.jwtService.sign(payload),
+      user: {
+        id: auth.account_id,
+        name: auth.account.account_name,
+        phone: auth.account.account_phone,
+      },
+    };
+  }
+
+  /**
+   * [1.3] 계정 생성 (Web 전용)
+   * 관리자가 상담원 정보를 입력하여 계정을 생성합니다.
+   */
+  async createAccount(dto: { id: string; pw: string; name: string; phone: string }) {
+    // 1. 아이디 중복 체크
+    await this.checkDuplicateId(dto.id);
+
+    // 2. 상담원 이름 중복 체크 (account_name이 Unique이므로 체크 필수)
+    const existingName = await this.prisma.account.findUnique({
+      where: { account_name: dto.name },
+    });
+    if (existingName) {
+      throw new ConflictException('이미 등록된 상담원 이름입니다.');
+    }
+
+    // 3. 비밀번호 해싱 (보안)
+    const hashedPassword = await bcrypt.hash(dto.pw, 10);
+
+    // 4. 트랜잭션: Auth와 Account를 동시에 생성
+    return await this.prisma.$transaction(async (tx) => {
+      const auth = await tx.auth.create({
+        data: {
+          account_id: dto.id,
+          account_pw: hashedPassword,
+          account: {
+            create: {
+              account_name: dto.name,
+              account_phone: dto.phone,
+              // registeredAt은 스키마의 @default(now())에 의해 자동 생성됩니다.
+            },
+          },
+        },
+        include: { account: true },
+      });
+
+      return {
+        message: '계정이 성공적으로 생성되었습니다.',
+        user: {
+          id: auth.account_id,
+          name: auth.account?.account_name,
+        },
+      };
+    });
+  }
+
+  /**
+   * [1.3.1] 중복가입 체크 (Web 전용)
+   */
+  async checkDuplicateId(accountId: string) {
+    const existingUser = await this.prisma.auth.findUnique({
+      where: { account_id: accountId },
+    });
+
+    if (existingUser) {
+      throw new ConflictException('이미 존재하는 아이디입니다.');
+    }
+
+    return { 
+      available: true, 
+      message: '사용 가능한 아이디입니다.' 
+    };
+  }
+  /**
+   * [1.4] 내 전화번호 수정 (App)
+   * 조회 과정 없이 즉시 업데이트를 수행합니다.
+   */
+  async updateMyPhone(accountId: string, newPhone: string) {
+    // 조회(findUnique) 과정을 생략하고 바로 update를 실행합니다.
+    // 만약 accountId가 잘못되었다면 Prisma가 자체적으로 예외를 던집니다.
+    const updatedAccount = await this.prisma.account.update({
+      where: { account_id: accountId },
+      data: { account_phone: newPhone },
+    });
+
+    return {
+      message: '전화번호가 성공적으로 변경되었습니다.',
+      updatedPhone: updatedAccount.account_phone,
+    };
+  }
+}
