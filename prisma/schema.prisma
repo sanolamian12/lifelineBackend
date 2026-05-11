@@ -29,6 +29,10 @@ model Account {
   // [수정] 운영자 여부 필드 추가
   isChief       Boolean   @default(false)
 
+  // 계정 삭제 여부 및 삭제 시간
+  isDeleted     Boolean   @default(false) 
+  deletedAt     DateTime?  
+
   total_hours   Float     @default(0.0)
   activities    Activity[]
   

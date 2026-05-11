@@ -212,7 +212,7 @@ export class CurrentService {
         where: { id: 'singleton' },
         data: {
           cur_account: targetId,
-          selected_account: targetId
+          // selected_account: targetId
         },
       });
 

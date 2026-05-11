@@ -7,7 +7,8 @@ import {
   Patch,
   HttpCode,
   HttpStatus,
-  Delete
+  Delete,
+  Param
 } from '@nestjs/common';
 import { AuthService } from './auth.service';
 
@@ -57,7 +58,7 @@ export class AuthController {
   @Patch('admin/update-account')
   async adminUpdateAccount(
     @Query('targetId') targetId: string,
-    @Body() updateDto: { name?: string; phone?: string; password?: string; isChief?: boolean }
+    @Body() updateDto: { name?: string; phone?: string; password?: string; isChief?: boolean; isDeleted?: boolean }
   ) {
     return await this.authService.updateAccountByAdmin(targetId, updateDto);
   }
@@ -82,5 +83,11 @@ export class AuthController {
   @Delete('admin/delete-account')
   async deleteAccount(@Query('targetId') targetId: string) {
     return await this.authService.deleteAccount(targetId);
+  }
+
+  @Patch('withdraw/:id') // PATCH /auth/withdraw/user_01 형식
+  async withdraw(@Param('id') id: string) {
+    await this.authService.requestWithdrawal(id);
+    return { success: true, message: '계정 삭제 요청이 완료되었습니다.' };
   }
 }

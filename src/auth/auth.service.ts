@@ -43,6 +43,10 @@ export class AuthService {
    * [1.1] 로그인 (App/Web 공통)
    */
   async login(accountId: string, password: string) {
+
+    console.log('--- [DEBUG] 로그인 시도 시작 ---');
+    console.log(`ID: ${accountId}, PW: ${password ? '입력됨' : '입력 안 됨'}`);
+    
     const auth = await this.prisma.auth.findUnique({
       where: { account_id: accountId },
       include: { account: true },
@@ -50,6 +54,10 @@ export class AuthService {
 
     if (!auth) {
       throw new UnauthorizedException('존재하지 않는 계정입니다.');
+    }
+    // [추가] 계정 삭제(탈퇴) 여부 확인
+    if (auth.account?.isDeleted) {
+      throw new UnauthorizedException('삭제 처리된 ID입니다.');
     }
 
     const isPasswordMatching = await bcrypt.compare(password, auth.account_pw);
@@ -128,7 +136,7 @@ export class AuthService {
   /**
    * [1.6] 회원 정보 수정 (Web)
    */
-  async updateAccountByAdmin(targetId: string, updateData: { name?: string; phone?: string; password?: string; isChief?: boolean }) {
+  async updateAccountByAdmin(targetId: string, updateData: { name?: string; phone?: string; password?: string; isChief?: boolean; isDeleted?: boolean }) {
 
     let hashedPassword: string | undefined = undefined;
     if (updateData.password && updateData.password.trim() !== '') {
@@ -145,6 +153,7 @@ export class AuthService {
           account_name: updateData.name || undefined,
           account_phone: formattedPhone || undefined,
           isChief: updateData.isChief !== undefined ? updateData.isChief : undefined,
+          isDeleted: updateData.isDeleted !== undefined ? updateData.isDeleted : undefined,
         },
       });
 
@@ -163,6 +172,7 @@ export class AuthService {
           name: updatedAccount.account_name,
           phone: updatedAccount.account_phone,
           isChief: updatedAccount.isChief,
+          isDeleted: updatedAccount.isDeleted,
           passwordChanged: !!hashedPassword,
         },
       };
@@ -199,6 +209,7 @@ export class AuthService {
         account_name: true,
         account_phone: true,
         isChief: true,
+        isDeleted: true,
       },
       orderBy: {
         account_name: 'asc', // 이름 기준 가나다순 정렬
@@ -225,7 +236,29 @@ export class AuthService {
   return await this.prisma.$transaction(async (tx) => {
     await tx.account.delete({ where: { account_id: targetId } });
     await tx.auth.delete({ where: { account_id: targetId } });
-    return { success: true, message: '상담원 계정이 삭제되었습니다.' };
-  });
-}
+      return { success: true, message: '상담원 계정이 삭제되었습니다.' };
+    });
+  }
+  /**
+   * [추가] 앱 사용자용 계정 삭제 요청 (소프트 삭제)
+   */
+  async requestWithdrawal(accountId: string) {
+    // 1. 계정 존재 여부 확인
+    const account = await this.prisma.account.findUnique({
+      where: { account_id: accountId },
+    });
+
+    if (!account) {
+      throw new NotFoundException('계정을 찾을 수 없습니다.');
+    }
+
+    // 2. 소프트 삭제 수행 (isDeleted 플래그만 true로 변경)
+    return await this.prisma.account.update({
+      where: { account_id: accountId },
+      data: {
+        isDeleted: true,
+        deletedAt: new Date(),
+      },
+    });
+  }
 }
