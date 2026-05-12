@@ -116,7 +116,16 @@ export class OrdersService {
 
   // src/orders/orders.service.ts
 
-  async updateWeeklySchedule(newScheduleData: any[]) {
+  async updateWeeklySchedule(newScheduleData: any[], offsetMinutes: number = 0) {
+    // [안전망] 프론트가 행을 (요일, 시작시각) 순으로 정렬해서 보내지 않으면
+    // next_id 체인이 시간 흐름과 무관하게 짜여서 인수인계가 엉뚱한 사람으로 넘어간다.
+    // 서버에서 한 번 더 정렬해서 그 위험을 차단한다.
+    newScheduleData.sort(
+      (a, b) =>
+        this.parseTime(a.day, a.time, false).getTime() -
+        this.parseTime(b.day, b.time, false).getTime(),
+    );
+
     return await this.prisma.$transaction(async (tx) => {
       // 1. 기존 데이터 백업 (기존 로직 유지)
       const currentOrders = await tx.order.findMany();
@@ -158,11 +167,8 @@ export class OrdersService {
       }
 
       // 4. [핵심] 새 시간표 기준 현재 상담원 매칭
-      // findOrderByCurrentTime와 유사하지만 tx(트랜잭션) 내에서 조회해야 함
-      const now = new Date();
-      // 실제 운영 환경의 타임존 오프셋을 고려하여 현재 요일/시간 추출
-      // 여기서는 헬퍼 함수 findOrderByCurrentTime의 로직을 tx용으로 재사용
-      const currentOrder = await this.findOrderInTransaction(tx, 0); 
+      // 프론트에서 받은 시드니 오프셋(예: +600/+660분)을 그대로 전달해 현지 시각 기준으로 슬롯을 잡는다.
+      const currentOrder = await this.findOrderInTransaction(tx, offsetMinutes);
 
       const fallbackAccount = newScheduleData[0].account_id;
       const fallbackNext = newScheduleData[1]?.account_id || fallbackAccount;
@@ -225,7 +231,7 @@ export class OrdersService {
   }
 
   // [새 기능 추가] 되돌리기 (Restore)
-  async restoreSchedule() {
+  async restoreSchedule(offsetMinutes: number = 0) {
     return await this.prisma.$transaction(async (tx) => {
       const backups = await tx.orderBackup.findMany();
       if (backups.length === 0) {
@@ -250,8 +256,8 @@ export class OrdersService {
         });
       }
 
-      // 3. Current 테이블 싱크 맞추기
-      const currentOrder = await this.findOrderByCurrentTime(0);
+      // 3. Current 테이블 싱크 맞추기 (시드니 오프셋 반영)
+      const currentOrder = await this.findOrderByCurrentTime(offsetMinutes);
       if (currentOrder) {
         await tx.current.update({
           where: { id: "singleton" },

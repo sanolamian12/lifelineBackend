@@ -24,9 +24,9 @@ export class OrdersController {
    */
   @Post('bulk-update')
   @UseGuards(JwtAuthGuard)
-  async bulkUpdate(@Body() newScheduleData: any[]) {
-    // Service의 트랜잭션 로직을 실행합니다.
-    return await this.ordersService.updateWeeklySchedule(newScheduleData);
+  async bulkUpdate(@Body() newScheduleData: any[], @Query('offset') offset?: string) {
+    const offsetMinutes = offset ? parseInt(offset) : 0;
+    return await this.ordersService.updateWeeklySchedule(newScheduleData, offsetMinutes);
   }
   /**
    * 3. 주간 전체 스케줄 목록 조회
@@ -47,7 +47,8 @@ export class OrdersController {
   
   @Post('restore')
   @UseGuards(JwtAuthGuard)
-  async restore() {
-    return await this.ordersService.restoreSchedule();
+  async restore(@Query('offset') offset?: string) {
+    const offsetMinutes = offset ? parseInt(offset) : 0;
+    return await this.ordersService.restoreSchedule(offsetMinutes);
   }
 }
