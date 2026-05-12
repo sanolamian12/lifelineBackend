@@ -39,6 +39,37 @@ async function main() {
 
     console.log(`총 ${orders.length}개의 슬롯을 재배치합니다.\n`);
 
+    // [Current 싱글톤 상태] — Current가 어디를 가리키는지 확인용
+    const currentSnapshot = await tx.current.findUnique({ where: { id: 'singleton' } });
+    if (currentSnapshot) {
+      const [curAcc, nextAcc, selAcc] = await Promise.all([
+        tx.account.findUnique({ where: { account_id: currentSnapshot.cur_account }, select: { account_name: true } }),
+        tx.account.findUnique({ where: { account_id: currentSnapshot.next_account }, select: { account_name: true } }),
+        tx.account.findUnique({ where: { account_id: currentSnapshot.selected_account }, select: { account_name: true } }),
+      ]);
+      const curSlot = orders.find((o) => o.account_id === currentSnapshot.cur_account);
+      console.log('--- Current (singleton) 상태 ---');
+      console.log(`  cur_account:      ${currentSnapshot.cur_account.padEnd(10)} (${curAcc?.account_name ?? 'NOT FOUND'})`);
+      console.log(`  next_account:     ${currentSnapshot.next_account.padEnd(10)} (${nextAcc?.account_name ?? 'NOT FOUND'})`);
+      console.log(`  selected_account: ${currentSnapshot.selected_account.padEnd(10)} (${selAcc?.account_name ?? 'NOT FOUND'})`);
+      console.log(`  isAdminMode:      ${currentSnapshot.isAdminMode}`);
+      console.log(`  lastUpdated:      ${currentSnapshot.lastUpdated.toISOString()}`);
+      if (curSlot) {
+        console.log(`  → cur의 시간표 슬롯: ${curSlot.day} ${curSlot.time}  (order=${curSlot.order}, next_id=${curSlot.next_id})`);
+        const expectedNext = curSlot.next_id;
+        const match = expectedNext === currentSnapshot.next_account;
+        console.log(`  → next_account vs cur 슬롯의 next_id: ${match ? '일치' : `불일치  (Order상 next=${expectedNext}, Current.next=${currentSnapshot.next_account})`}`);
+      } else {
+        console.log(`  → 주의: cur_account(${currentSnapshot.cur_account})에 해당하는 시간표 슬롯이 없음`);
+      }
+      const nowSydney = new Date(Date.now() + 10 * 60 * 60 * 1000);
+      console.log(`  (서버 UTC now: ${new Date().toISOString()})`);
+      console.log(`  (시드니 추정 now: ${['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][nowSydney.getUTCDay()]} ${nowSydney.getUTCHours()}:${String(nowSydney.getUTCMinutes()).padStart(2,'0')})`);
+      console.log();
+    } else {
+      console.log('--- Current 싱글톤이 존재하지 않습니다 ---\n');
+    }
+
     // [BEFORE 스냅샷] 현재 DB에 저장된 order/next_id 그대로 출력 — 롤백 레퍼런스용
     console.log('--- BEFORE (현재 DB 상태, 롤백용 백업 레퍼런스) ---');
     console.log('id                                   | day        | time             | 상담원        | order | next_id');
