@@ -72,19 +72,19 @@ async function main() {
 
     // [BEFORE 스냅샷] 현재 DB에 저장된 order/next_id 그대로 출력 — 롤백 레퍼런스용
     console.log('--- BEFORE (현재 DB 상태, 롤백용 백업 레퍼런스) ---');
-    console.log('id                                   | day        | time             | 상담원        | order | next_id');
-    console.log('-------------------------------------+------------+------------------+--------------+-------+----------------');
+    console.log('순번 | day        | time             | id      | 상담원        | next_id');
+    console.log('-----+------------+------------------+---------+--------------+----------------');
     for (const row of orders) {
       console.log(
-        `${row.id.padEnd(36)} | ${row.day.padEnd(10)} | ${row.time.padEnd(16)} | ${(row.account?.account_name ?? row.account_id).padEnd(12)} | ${String(row.order).padStart(5)} | ${row.next_id}`,
+        `${String(row.order).padStart(4)} | ${row.day.padEnd(10)} | ${row.time.padEnd(16)} | ${row.account_id.padEnd(7)} | ${(row.account?.account_name ?? row.account_id).padEnd(12)} | ${row.next_id}`,
       );
     }
     console.log();
 
     // [AFTER 계획] start_time ASC 정렬 결과로 재계산한 값
     console.log('--- AFTER (재배치 후 계획, * 는 변경되는 행) ---');
-    console.log('새 순번 | day        | time             | 상담원        | 새 next_id            | 변경 전 (order / next_id)');
-    console.log('--------+------------+------------------+--------------+-----------------------+---------------------------');
+    console.log('새 순번 | day        | time             | id      | 상담원        | 새 next_id            | 변경 전 (order / next_id)');
+    console.log('--------+------------+------------------+---------+--------------+-----------------------+---------------------------');
 
     const updates: { id: string; newOrder: number; newNextId: string; oldOrder: number; oldNextId: string }[] = [];
 
@@ -98,7 +98,7 @@ async function main() {
       const marker = changed ? '*' : ' ';
       const oldInfo = changed ? `${row.order} / ${row.next_id}` : '(변경 없음)';
       console.log(
-        `${marker} ${String(newOrder).padStart(4)} | ${row.day.padEnd(10)} | ${row.time.padEnd(16)} | ${(row.account?.account_name ?? row.account_id).padEnd(12)} | ${newNextId.padEnd(20)} | ${oldInfo}`,
+        `${marker} ${String(newOrder).padStart(4)} | ${row.day.padEnd(10)} | ${row.time.padEnd(16)} | ${row.account_id.padEnd(7)} | ${(row.account?.account_name ?? row.account_id).padEnd(12)} | ${newNextId.padEnd(20)} | ${oldInfo}`,
       );
 
       if (changed) {
