@@ -112,10 +112,54 @@ async function main() {
       }
     }
 
-    console.log(`\n변경 대상: ${updates.length} / ${orders.length} 행 (별표 표시된 행)\n`);
+    console.log(`\n변경 대상 (Order): ${updates.length} / ${orders.length} 행 (별표 표시된 행)`);
 
-    if (updates.length === 0) {
-      console.log('체인이 이미 정상입니다. 변경 없음.');
+    // [Current 보정 계획 계산] — Order 변경 여부와 독립적으로 평가
+    let currentPlan: {
+      newNext: string;
+      newSelected: string;
+      preserveSelected: boolean;
+      reason: string;
+    } | null = null;
+
+    if (currentSnapshot && !currentSnapshot.isAdminMode) {
+      const curRow = orders.find((o) => o.account_id === currentSnapshot.cur_account);
+      if (curRow) {
+        const expectedNext = curRow.next_id;
+        const nextMismatch = currentSnapshot.next_account !== expectedNext;
+        const preserveSelected =
+          currentSnapshot.selected_account !== currentSnapshot.next_account &&
+          currentSnapshot.selected_account === expectedNext;
+        const newSelected = preserveSelected ? currentSnapshot.selected_account : expectedNext;
+        const selectedMismatch = currentSnapshot.selected_account !== newSelected;
+        if (nextMismatch || selectedMismatch) {
+          currentPlan = {
+            newNext: expectedNext,
+            newSelected,
+            preserveSelected,
+            reason:
+              preserveSelected
+                ? 'selected가 이미 정답이라 보존, next만 보정'
+                : 'next/selected 모두 cur 슬롯의 next_id로 정렬',
+          };
+        }
+      }
+    }
+
+    if (currentPlan) {
+      console.log(`변경 대상 (Current): 필요  (${currentPlan.reason})`);
+      console.log(`  next_account:     ${currentSnapshot!.next_account} -> ${currentPlan.newNext}`);
+      console.log(
+        `  selected_account: ${currentSnapshot!.selected_account} -> ${currentPlan.newSelected}` +
+          (currentPlan.preserveSelected ? ' (수동 선택값 보존)' : ''),
+      );
+    } else {
+      console.log(`변경 대상 (Current): 없음`);
+    }
+    console.log();
+
+    if (updates.length === 0 && !currentPlan) {
+      console.log('Order 체인과 Current 모두 정상입니다. 변경 없음.');
       return;
     }
 
@@ -124,55 +168,29 @@ async function main() {
       return;
     }
 
-    // 실제 적용
+    // 실제 적용 — Order 변경
     for (const u of updates) {
       await tx.order.update({
         where: { id: u.id },
         data: { order: u.newOrder, next_id: u.newNextId },
       });
     }
-    console.log(`Order 테이블 ${updates.length}건 갱신 완료.`);
-
-    // Current 보정
-    const current = await tx.current.findUnique({ where: { id: 'singleton' } });
-    if (!current) {
-      console.log('Current 싱글톤이 없어 Current 갱신은 건너뜁니다.');
-      return;
+    if (updates.length > 0) {
+      console.log(`Order 테이블 ${updates.length}건 갱신 완료.`);
     }
 
-    if (current.isAdminMode) {
-      console.log('운영자 모드 활성 상태 — Current 자동 갱신은 건너뜁니다.');
-      return;
+    // 실제 적용 — Current 보정
+    if (currentPlan) {
+      await tx.current.update({
+        where: { id: 'singleton' },
+        data: {
+          next_account: currentPlan.newNext,
+          selected_account: currentPlan.newSelected,
+          lastUpdated: new Date(),
+        },
+      });
+      console.log(`Current 갱신 완료.`);
     }
-
-    const curRow = orders.find((o) => o.account_id === current.cur_account);
-    if (!curRow) {
-      console.log(`현재 상담원(${current.cur_account})이 시간표에 없습니다 — Current 갱신 건너뜀.`);
-      return;
-    }
-
-    const curIdx = orders.indexOf(curRow);
-    const newNextForCurrent = orders[(curIdx + 1) % orders.length].account_id;
-
-    const preserveSelected = current.selected_account !== current.next_account;
-    const newSelected = preserveSelected ? current.selected_account : newNextForCurrent;
-
-    await tx.current.update({
-      where: { id: 'singleton' },
-      data: {
-        next_account: newNextForCurrent,
-        selected_account: newSelected,
-        lastUpdated: new Date(),
-      },
-    });
-
-    console.log(`\nCurrent 갱신:`);
-    console.log(`  cur_account:      ${current.cur_account} (변경 없음)`);
-    console.log(`  next_account:     ${current.next_account} -> ${newNextForCurrent}`);
-    console.log(
-      `  selected_account: ${current.selected_account} -> ${newSelected}` +
-        (preserveSelected ? ' (사용자 수동 선택값 보존)' : ''),
-    );
   });
 
   console.log('\n=== 완료 ===\n');
